@@ -34,15 +34,26 @@
   --accent: oklch(0.72 0.19 25);
   --accent-foreground: oklch(0.99 0 0);
   --border: oklch(1 0 0 / 8%);
+  --page-bg: radial-gradient(ellipse at top, oklch(0.18 0.02 260) 0%, oklch(0.09 0.008 260) 60%, oklch(0.07 0.005 260) 100%);
+}
+
+:root.light {
+  --background: oklch(0.985 0 0);
+  --foreground: oklch(0.15 0.01 260);
+  --surface: oklch(0.96 0.005 260);
+  --surface-foreground: oklch(0.15 0.01 260);
+  --muted: oklch(0.92 0.005 260);
+  --muted-foreground: oklch(0.45 0.01 260);
+  --accent: oklch(0.62 0.2 25);
+  --accent-foreground: oklch(0.99 0 0);
+  --border: oklch(0 0 0 / 10%);
+  --page-bg: radial-gradient(ellipse at top, oklch(0.99 0 0) 0%, oklch(0.95 0.005 260) 60%, oklch(0.92 0.005 260) 100%);
 }
 
 @layer base {
-  * {
-    border-color: var(--color-border);
-  }
-
+  * { border-color: var(--color-border); }
   html, body {
-    background: radial-gradient(ellipse at top, oklch(0.18 0.02 260) 0%, oklch(0.09 0.008 260) 60%, oklch(0.07 0.005 260) 100%);
+    background: var(--page-bg);
     background-attachment: fixed;
     color: var(--color-foreground);
     font-family: var(--font-sans);
@@ -76,9 +87,7 @@
   animation: fade-up 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-@keyframes spin-slow {
-  to { transform: rotate(360deg); }
-}
+@keyframes spin-slow { to { transform: rotate(360deg); } }
 
 @utility animate-spin-slow {
   animation: spin-slow 1.2s linear infinite;
