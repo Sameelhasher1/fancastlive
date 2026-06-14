@@ -8,12 +8,12 @@ const SHEET_CSV_URL =
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "SportStream — Live Sports Streaming" },
+      { title: "OFFICIA PLAY — Live Sports Streaming" },
       {
         name: "description",
         content: "Watch live sports in stunning quality on SportStream. One player. Zero distractions.",
       },
-      { property: "og:title", content: "SportStream — Live Sports Streaming" },
+      { property: "og:title", content: "OFFICIA PLAY — Live Sports Streaming" },
       {
         property: "og:description",
         content: "Watch live sports in stunning quality on SportStream.",
@@ -149,7 +149,7 @@ function Index() {
             <svg viewBox="0 0 24 24" className="w-4 h-4 fill-white"><path d="M8 5v14l11-7z"/></svg>
           </div>
           <span className="font-display font-semibold tracking-tight text-lg">
-            Sport<span className="text-accent">Stream</span>
+            OFFICIA PLAY<span className="text-accent"></span>
           </span>
         </div>
         <div className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground animate-fade-up">
@@ -168,7 +168,7 @@ function Index() {
               {status === "loading" ? (
                 <span className="inline-block h-10 sm:h-14 w-72 max-w-full rounded-lg bg-surface animate-pulse" />
               ) : (
-                data?.title || "SportStream"
+                data?.title || "OFFICIA PLAY"
               )}
             </h1>
           </div>
@@ -179,7 +179,7 @@ function Index() {
           >
             {status === "loading" && <LoadingOverlay label="Connecting to stream" />}
             {status === "error" && <Message title="Connection error" body="Couldn't reach the stream source. Please refresh." />}
-            {status === "offline" && <Message title="Stream Offline" body="The broadcast hasn't started yet. Check back soon." />}
+            {status === "offline" && <Message title="Stream Soon." body="The match hasn't started yet. Check back soon." />}
 
             {status === "ready" && data?.url && (
               <>
@@ -228,7 +228,7 @@ function Index() {
       </section>
 
       <footer className="px-6 md:px-10 py-5 text-center text-xs text-muted-foreground/70">
-        © {new Date().getFullYear()} SportStream
+        © {new Date().getFullYear()} OFFICIA PLAY
       </footer>
     </main>
   );
