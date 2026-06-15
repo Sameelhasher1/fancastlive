@@ -11,6 +11,8 @@ import {
   Check,
   Copy,
 } from "lucide-react";
+import LiveChat from "@/components/LiveChat";
+import { useBranding } from "@/contexts/BrandingContext";
 
 const SHEET_CSV_URL =
   "https://docs.google.com/spreadsheets/d/e/2PACX-1vSV-m1nWQTWSA1zmowQ7NdwSCARkx3shVL3k_NX9p7UQn-goRSlPpBky6Ej2LlvoGCeH8KfeftEz-eX/pub?output=csv";
@@ -97,6 +99,7 @@ function findCol(header: string[], keys: string[]): number {
 }
 
 function Index() {
+  const { branding } = useBranding();
   const [data, setData] = useState<StreamData | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "offline" | "error">("loading");
   const [playerLoading, setPlayerLoading] = useState(true);
@@ -242,10 +245,14 @@ function Index() {
     <main className="min-h-screen flex flex-col">
       <header className="w-full px-6 md:px-10 py-5 flex items-center justify-between">
         <div className="flex items-center gap-2.5 animate-fade-up">
-          <div className="h-8 w-8 rounded-xl bg-accent grid place-items-center shadow-lg shadow-accent/30">
-            <svg viewBox="0 0 24 24" className="w-4 h-4 fill-white"><path d="M8 5v14l11-7z"/></svg>
-          </div>
-          <span className="font-display font-semibold tracking-tight text-lg">OFFICIA PLAY</span>
+          {branding.logoUrl ? (
+            <img src={branding.logoUrl} alt={branding.siteName} className="h-8 w-8 rounded-xl object-cover bg-surface" />
+          ) : (
+            <div className="h-8 w-8 rounded-xl bg-accent grid place-items-center shadow-lg shadow-accent/30">
+              <svg viewBox="0 0 24 24" className="w-4 h-4 fill-white"><path d="M8 5v14l11-7z"/></svg>
+            </div>
+          )}
+          <span className="font-display font-semibold tracking-tight text-lg">{branding.siteName}</span>
         </div>
         <div className="flex items-center gap-4 animate-fade-up">
           <div className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground">
@@ -262,136 +269,142 @@ function Index() {
         </div>
       </header>
 
-      <section className="flex-1 flex items-center justify-center px-4 sm:px-6 md:px-10 pb-10">
-        <div className="w-full max-w-6xl mx-auto">
-          <div className="text-center mb-6 sm:mb-8 animate-fade-up">
-            <p className="text-xs sm:text-sm uppercase tracking-[0.25em] text-muted-foreground mb-3">Now Streaming</p>
+      <section className="flex-1 flex items-start justify-center px-4 sm:px-6 md:px-10 pb-10">
+        <div className="w-full max-w-7xl mx-auto">
+          <div className="text-center mb-5 animate-fade-up">
+            <p className="text-xs sm:text-sm uppercase tracking-[0.25em] text-muted-foreground">Now Streaming</p>
+          </div>
+
+          {/* Banner — between Now Streaming and Title, 16:9 */}
+          {data?.bannerUrl && (
+            <div className="mb-5 sm:mb-6 max-w-5xl mx-auto animate-fade-up" style={{ animationDelay: "80ms" }}>
+              {data.bannerLink ? (
+                <a href={data.bannerLink} target="_blank" rel="noreferrer noopener" className="block">
+                  <div className="aspect-video w-full rounded-2xl overflow-hidden border border-border shadow-xl shadow-black/40">
+                    <img src={data.bannerUrl} alt="Sponsor banner" className="w-full h-full object-cover" />
+                  </div>
+                </a>
+              ) : (
+                <div className="aspect-video w-full rounded-2xl overflow-hidden border border-border shadow-xl shadow-black/40">
+                  <img src={data.bannerUrl} alt="Sponsor banner" className="w-full h-full object-cover" />
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="text-center mb-6 sm:mb-8 animate-fade-up" style={{ animationDelay: "120ms" }}>
             <h1 className="font-display text-3xl sm:text-5xl md:text-6xl font-bold tracking-tight leading-tight">
               {status === "loading" ? (
                 <span className="inline-block h-10 sm:h-14 w-72 max-w-full rounded-lg bg-surface animate-pulse" />
               ) : (
-                data?.title || "OFFICIA PLAY"
+                data?.title || branding.siteName
               )}
             </h1>
           </div>
 
-          <div
-            ref={playerWrapRef}
-            className="relative w-full aspect-video rounded-2xl sm:rounded-3xl overflow-hidden bg-black border border-border shadow-2xl shadow-black/60 animate-fade-up group"
-            style={{ animationDelay: "120ms" }}
-          >
-            {status === "loading" && <LoadingOverlay label="Connecting to stream" />}
-            {status === "error" && <Message title="Connection error" body="Couldn't reach the stream source. Please refresh." />}
-            {status === "offline" && <Message title="Stream Soon." body="The match hasn't started yet. Check back soon." />}
+          <div className="grid gap-4 lg:gap-5 lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_400px] items-stretch">
+            <div
+              ref={playerWrapRef}
+              className="relative w-full aspect-video rounded-2xl sm:rounded-3xl overflow-hidden bg-black border border-border shadow-2xl shadow-black/60 animate-fade-up group"
+              style={{ animationDelay: "160ms" }}
+            >
+              {status === "loading" && <LoadingOverlay label="Connecting to stream" />}
+              {status === "error" && <Message title="Connection error" body="Couldn't reach the stream source. Please refresh." />}
+              {status === "offline" && <Message title="Stream Soon." body="The match hasn't started yet. Check back soon." />}
 
-            {status === "ready" && data?.url && (
-              <>
-                {isVideo && (
-                  <>
-                    <video
-                      ref={videoRef}
-                      className="w-full h-full object-contain bg-black"
-                      controls
-                      playsInline
-                      autoPlay
-                      muted
+              {status === "ready" && data?.url && (
+                <>
+                  {isVideo && (
+                    <>
+                      <video
+                        ref={videoRef}
+                        className="w-full h-full object-contain bg-black"
+                        controls
+                        playsInline
+                        autoPlay
+                        muted
+                      />
+                      {playerLoading && <LoadingOverlay label="Loading stream" />}
+                    </>
+                  )}
+                  {kind === "youtube" && (
+                    <iframe
+                      src={toYouTubeEmbed(data.url)}
+                      title={data.title}
+                      className="w-full h-full"
+                      allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+                      allowFullScreen
                     />
-                    {playerLoading && <LoadingOverlay label="Loading stream" />}
-                  </>
-                )}
-                {kind === "youtube" && (
-                  <iframe
-                    src={toYouTubeEmbed(data.url)}
-                    title={data.title}
-                    className="w-full h-full"
-                    allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
-                    allowFullScreen
-                  />
-                )}
-                {kind === "iframe" && (
-                  <iframe
-                    src={data.url}
-                    title={data.title}
-                    className="w-full h-full"
-                    allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
-                    allowFullScreen
-                  />
-                )}
-              </>
-            )}
+                  )}
+                  {kind === "iframe" && (
+                    <iframe
+                      src={data.url}
+                      title={data.title}
+                      className="w-full h-full"
+                      allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+                      allowFullScreen
+                    />
+                  )}
+                </>
+              )}
 
-            {/* Custom action bar — overlays player */}
-            <div className="absolute top-3 right-3 z-20 flex items-center gap-2 opacity-90 hover:opacity-100 transition">
-              {isVideo && qualities.length > 0 && (
-                <div className="relative">
-                  <ActionBtn label="Quality" onClick={() => { setShowQuality((s) => !s); setShowShare(false); }}>
-                    <Settings className="w-4 h-4" />
+              {/* Custom action bar — overlays player */}
+              <div className="absolute top-3 right-3 z-20 flex items-center gap-2 opacity-90 hover:opacity-100 transition">
+                {isVideo && qualities.length > 0 && (
+                  <div className="relative">
+                    <ActionBtn label="Quality" onClick={() => { setShowQuality((s) => !s); setShowShare(false); }}>
+                      <Settings className="w-4 h-4" />
+                    </ActionBtn>
+                    {showQuality && (
+                      <div className="absolute right-0 mt-2 min-w-[140px] rounded-xl bg-black/85 backdrop-blur border border-white/10 p-1 text-sm shadow-xl">
+                        <QualityItem active={currentQuality === -1} label="Auto" onClick={() => setQuality(-1)} />
+                        {qualities.map((q) => (
+                          <QualityItem key={q.id} active={currentQuality === q.id} label={q.label} onClick={() => setQuality(q.id)} />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {isVideo && (
+                  <ActionBtn label="Picture-in-picture" onClick={handlePiP}>
+                    <PictureInPicture2 className="w-4 h-4" />
                   </ActionBtn>
-                  {showQuality && (
-                    <div className="absolute right-0 mt-2 min-w-[140px] rounded-xl bg-black/85 backdrop-blur border border-white/10 p-1 text-sm shadow-xl">
-                      <QualityItem active={currentQuality === -1} label="Auto" onClick={() => setQuality(-1)} />
-                      {qualities.map((q) => (
-                        <QualityItem key={q.id} active={currentQuality === q.id} label={q.label} onClick={() => setQuality(q.id)} />
-                      ))}
+                )}
+                <div className="relative">
+                  <ActionBtn label="Share" onClick={handleShare}>
+                    <Share2 className="w-4 h-4" />
+                  </ActionBtn>
+                  {showShare && (
+                    <div className="absolute right-0 mt-2 w-64 rounded-xl bg-black/85 backdrop-blur border border-white/10 p-3 text-sm shadow-xl text-white">
+                      <p className="text-xs text-white/60 mb-2">Share this stream</p>
+                      <div className="flex items-center gap-2">
+                        <input
+                          readOnly
+                          value={shareUrl}
+                          className="flex-1 bg-white/5 border border-white/10 rounded-md px-2 py-1.5 text-xs outline-none"
+                        />
+                        <button
+                          onClick={copyLink}
+                          className="h-8 w-8 grid place-items-center rounded-md bg-white/10 hover:bg-white/20"
+                          aria-label="Copy link"
+                        >
+                          {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
-              )}
-              {isVideo && (
-                <ActionBtn label="Picture-in-picture" onClick={handlePiP}>
-                  <PictureInPicture2 className="w-4 h-4" />
+                <ActionBtn label="Fullscreen" onClick={handleFullscreen}>
+                  <Maximize className="w-4 h-4" />
                 </ActionBtn>
-              )}
-              <div className="relative">
-                <ActionBtn label="Share" onClick={handleShare}>
-                  <Share2 className="w-4 h-4" />
-                </ActionBtn>
-                {showShare && (
-                  <div className="absolute right-0 mt-2 w-64 rounded-xl bg-black/85 backdrop-blur border border-white/10 p-3 text-sm shadow-xl text-white">
-                    <p className="text-xs text-white/60 mb-2">Share this stream</p>
-                    <div className="flex items-center gap-2">
-                      <input
-                        readOnly
-                        value={shareUrl}
-                        className="flex-1 bg-white/5 border border-white/10 rounded-md px-2 py-1.5 text-xs outline-none"
-                      />
-                      <button
-                        onClick={copyLink}
-                        className="h-8 w-8 grid place-items-center rounded-md bg-white/10 hover:bg-white/20"
-                        aria-label="Copy link"
-                      >
-                        {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                      </button>
-                    </div>
-                  </div>
-                )}
               </div>
-              <ActionBtn label="Fullscreen" onClick={handleFullscreen}>
-                <Maximize className="w-4 h-4" />
-              </ActionBtn>
+            </div>
+
+            {/* Live chat — same height as player on desktop, full width on mobile */}
+            <div className="h-[480px] lg:h-auto animate-fade-up" style={{ animationDelay: "200ms" }}>
+              <LiveChat />
             </div>
           </div>
-
-          {/* Banner from sheet */}
-          {data?.bannerUrl && (
-            <div className="mt-6 animate-fade-up" style={{ animationDelay: "200ms" }}>
-              {data.bannerLink ? (
-                <a href={data.bannerLink} target="_blank" rel="noreferrer noopener" className="block">
-                  <img
-                    src={data.bannerUrl}
-                    alt="Sponsor banner"
-                    className="w-full rounded-2xl border border-border shadow-lg object-cover max-h-40"
-                  />
-                </a>
-              ) : (
-                <img
-                  src={data.bannerUrl}
-                  alt="Sponsor banner"
-                  className="w-full rounded-2xl border border-border shadow-lg object-cover max-h-40"
-                />
-              )}
-            </div>
-          )}
 
           <p className="text-center text-xs text-muted-foreground mt-6 animate-fade-up" style={{ animationDelay: "240ms" }}>
             Premium quality • Low latency • Watch anywhere
@@ -400,7 +413,7 @@ function Index() {
       </section>
 
       <footer className="px-6 md:px-10 py-5 text-center text-xs text-muted-foreground/70">
-        © {new Date().getFullYear()} OFFICIA PLAY
+        © {new Date().getFullYear()} {branding.siteName}
       </footer>
     </main>
   );
