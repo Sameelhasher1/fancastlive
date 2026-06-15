@@ -11,6 +11,8 @@ import {
   Check,
   Copy,
 } from "lucide-react";
+import LiveChat from "@/components/LiveChat";
+import { useBranding } from "@/contexts/BrandingContext";
 
 const SHEET_CSV_URL =
   "https://docs.google.com/spreadsheets/d/e/2PACX-1vSV-m1nWQTWSA1zmowQ7NdwSCARkx3shVL3k_NX9p7UQn-goRSlPpBky6Ej2LlvoGCeH8KfeftEz-eX/pub?output=csv";
