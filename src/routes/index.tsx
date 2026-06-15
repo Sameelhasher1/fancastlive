@@ -260,6 +260,7 @@ function Index() {
             <span className="live-dot" />
             <span className="uppercase tracking-[0.18em]">Live Now</span>
           </div>
+          <ViewerCount />
           <button
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
             aria-label="Toggle theme"
