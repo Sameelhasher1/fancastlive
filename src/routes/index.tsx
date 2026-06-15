@@ -99,6 +99,7 @@ function findCol(header: string[], keys: string[]): number {
 }
 
 function Index() {
+  const { branding } = useBranding();
   const [data, setData] = useState<StreamData | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "offline" | "error">("loading");
   const [playerLoading, setPlayerLoading] = useState(true);
