@@ -245,10 +245,14 @@ function Index() {
     <main className="min-h-screen flex flex-col">
       <header className="w-full px-6 md:px-10 py-5 flex items-center justify-between">
         <div className="flex items-center gap-2.5 animate-fade-up">
-          <div className="h-8 w-8 rounded-xl bg-accent grid place-items-center shadow-lg shadow-accent/30">
-            <svg viewBox="0 0 24 24" className="w-4 h-4 fill-white"><path d="M8 5v14l11-7z"/></svg>
-          </div>
-          <span className="font-display font-semibold tracking-tight text-lg">OFFICIA PLAY</span>
+          {branding.logoUrl ? (
+            <img src={branding.logoUrl} alt={branding.siteName} className="h-8 w-8 rounded-xl object-cover bg-surface" />
+          ) : (
+            <div className="h-8 w-8 rounded-xl bg-accent grid place-items-center shadow-lg shadow-accent/30">
+              <svg viewBox="0 0 24 24" className="w-4 h-4 fill-white"><path d="M8 5v14l11-7z"/></svg>
+            </div>
+          )}
+          <span className="font-display font-semibold tracking-tight text-lg">{branding.siteName}</span>
         </div>
         <div className="flex items-center gap-4 animate-fade-up">
           <div className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground">
