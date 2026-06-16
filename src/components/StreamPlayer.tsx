@@ -133,7 +133,7 @@ export default function StreamPlayer({
         flvRef.current = player;
         player.attachMediaElement(video);
         player.load();
-        player.play().catch(() => {});
+        Promise.resolve(player.play()).catch(() => {});
       }
     } else {
       video.src = url;
