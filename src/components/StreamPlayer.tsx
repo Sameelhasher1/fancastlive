@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Hls from "hls.js";
-import dashjs from "dashjs";
+import * as dashjs from "dashjs";
 import flvjs from "flv.js";
 import {
   Maximize,
