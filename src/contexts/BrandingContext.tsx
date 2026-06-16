@@ -12,7 +12,7 @@ export type Branding = {
 };
 
 const FALLBACK: Branding = {
-  siteName: "OFFICIA PLAY",
+  siteName: "FANCAST",
   logoUrl: "",
   faviconUrl: "",
   primaryColor: "#ef4444",
