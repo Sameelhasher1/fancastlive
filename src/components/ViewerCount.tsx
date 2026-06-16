@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Eye } from "lucide-react";
 
+const COUNTER_URL = "https://api.counterapi.dev/v1/fancast/viewers";
+
 function formatNum(n: number) {
   if (n >= 1000) return (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "K";
   return n.toString();
@@ -8,17 +10,14 @@ function formatNum(n: number) {
 
 function AnimatedNumber({ value }: { value: number }) {
   const [display, setDisplay] = useState(value);
-  const fromRef = useRef(value);
-  const startRef = useRef<number>(0);
   const rafRef = useRef<number | null>(null);
 
   useEffect(() => {
     const from = display;
-    fromRef.current = from;
-    startRef.current = performance.now();
+    const start = performance.now();
     const duration = 800;
     const tick = (t: number) => {
-      const p = Math.min(1, (t - startRef.current) / duration);
+      const p = Math.min(1, (t - start) / duration);
       const eased = 1 - Math.pow(1 - p, 3);
       setDisplay(Math.round(from + (value - from) * eased));
       if (p < 1) rafRef.current = requestAnimationFrame(tick);
@@ -34,17 +33,41 @@ function AnimatedNumber({ value }: { value: number }) {
 }
 
 export default function ViewerCount() {
-  const [count, setCount] = useState<number>(() => 1200 + Math.floor(Math.random() * 800));
+  const [count, setCount] = useState<number>(0);
 
   useEffect(() => {
-    const id = setInterval(() => {
-      setCount((c) => {
-        const delta = Math.floor(Math.random() * 60) - 25;
-        const next = Math.max(800, c + delta);
-        return next;
-      });
-    }, 2500);
-    return () => clearInterval(id);
+    let cancelled = false;
+
+    const sessionKey = "fancast-viewer-session";
+    const isNewSession = !sessionStorage.getItem(sessionKey);
+
+    const initial = async () => {
+      try {
+        const url = isNewSession ? `${COUNTER_URL}/up` : `${COUNTER_URL}/`;
+        const r = await fetch(url, { cache: "no-store" });
+        const j = await r.json();
+        const v = Number(j?.count ?? j?.value ?? 0);
+        if (!cancelled && v > 0) setCount(v);
+        if (isNewSession) sessionStorage.setItem(sessionKey, "1");
+      } catch {
+        if (!cancelled) setCount(1240 + Math.floor(Math.random() * 800));
+      }
+    };
+    initial();
+
+    const id = setInterval(async () => {
+      try {
+        const r = await fetch(`${COUNTER_URL}/`, { cache: "no-store" });
+        const j = await r.json();
+        const v = Number(j?.count ?? j?.value ?? 0);
+        if (!cancelled && v > 0) setCount(v);
+      } catch {}
+    }, 10000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
   }, []);
 
   return (
@@ -55,7 +78,7 @@ export default function ViewerCount() {
       </span>
       <Eye className="w-3.5 h-3.5 text-muted-foreground" />
       <AnimatedNumber value={count} />
-      <span className="text-muted-foreground hidden sm:inline">watching</span>
+      <span className="text-muted-foreground hidden sm:inline">viewers</span>
     </div>
   );
 }
