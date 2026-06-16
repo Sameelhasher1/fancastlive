@@ -59,16 +59,17 @@ function findCol(header: string[], keys: string[]): number {
 }
 
 export function BrandingProvider({ children }: { children: ReactNode }) {
-  const [branding, setBranding] = useState<Branding>(() => {
-    if (typeof window === "undefined") return FALLBACK;
-    try {
-      const cached = localStorage.getItem(CACHE_KEY);
-      if (cached) return { ...FALLBACK, ...JSON.parse(cached) };
-    } catch {}
-    return FALLBACK;
-  });
+  const [branding, setBranding] = useState<Branding>(FALLBACK);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Hydrate from cache on client only (avoid SSR/client mismatch)
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem(CACHE_KEY);
+      if (cached) setBranding((b) => ({ ...b, ...JSON.parse(cached) }));
+    } catch {}
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
