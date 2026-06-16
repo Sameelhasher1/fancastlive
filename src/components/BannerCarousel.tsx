@@ -76,14 +76,14 @@ export default function BannerCarousel({ items }: { items: BannerItem[] }) {
           <button
             aria-label="Previous banner"
             onClick={() => setIndex((i) => (i - 1 + count) % count)}
-            className="hidden sm:grid place-items-center absolute top-1/2 left-2 -translate-y-1/2 h-9 w-9 rounded-full bg-black/55 hover:bg-black/75 text-white border border-white/10 backdrop-blur opacity-0 group-hover:opacity-100 transition"
+            className="grid place-items-center absolute top-1/2 left-2 -translate-y-1/2 h-9 w-9 rounded-full bg-black/55 hover:bg-black/75 text-white border border-white/10 backdrop-blur transition"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
           <button
             aria-label="Next banner"
             onClick={() => setIndex((i) => (i + 1) % count)}
-            className="hidden sm:grid place-items-center absolute top-1/2 right-2 -translate-y-1/2 h-9 w-9 rounded-full bg-black/55 hover:bg-black/75 text-white border border-white/10 backdrop-blur opacity-0 group-hover:opacity-100 transition"
+            className="grid place-items-center absolute top-1/2 right-2 -translate-y-1/2 h-9 w-9 rounded-full bg-black/55 hover:bg-black/75 text-white border border-white/10 backdrop-blur transition"
           >
             <ChevronRight className="w-4 h-4" />
           </button>
