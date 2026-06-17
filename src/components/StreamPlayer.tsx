@@ -11,7 +11,11 @@ import {
   Copy,
   Volume2,
   VolumeX,
+  RotateCw,
+  AlertTriangle,
 } from "lucide-react";
+import OverlayLayer from "@/components/OverlayLayer";
+import type { OverlayItem } from "@/contexts/BrandingContext";
 
 type QualityLevel = { id: number; label: string };
 
@@ -28,6 +32,10 @@ export function detectKind(url: string): StreamKind {
   if (u.includes("youtube.com") || u.includes("youtu.be")) return "youtube";
   if (u.includes("twitch.tv")) return "twitch";
   return "iframe";
+}
+
+function isValidUrl(u: string) {
+  try { new URL(u); return true; } catch { return false; }
 }
 
 function toYouTubeEmbed(url: string): string {
@@ -61,14 +69,30 @@ function toTwitchEmbed(url: string): string {
 export default function StreamPlayer({
   title,
   url,
+  fallback,
   index,
+  overlays = [],
 }: {
   title: string;
   url: string;
+  fallback?: string;
   index: number;
+  overlays?: OverlayItem[];
 }) {
-  const kind = useMemo(() => detectKind(url), [url]);
+  const [activeUrl, setActiveUrl] = useState(url);
+  const [usingFallback, setUsingFallback] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
+  const [errored, setErrored] = useState(false);
+
+  useEffect(() => {
+    setActiveUrl(url);
+    setUsingFallback(false);
+    setErrored(false);
+  }, [url]);
+
+  const kind = useMemo(() => detectKind(activeUrl), [activeUrl]);
   const isVideo = kind === "hls" || kind === "dash" || kind === "flv" || kind === "mp4" || kind === "webm";
+  const invalid = !!activeUrl && !isValidUrl(activeUrl);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -84,8 +108,28 @@ export default function StreamPlayer({
   const [copied, setCopied] = useState(false);
   const [muted, setMuted] = useState(true);
 
+  // Try fallback then mark errored
+  const handleStreamError = () => {
+    if (!usingFallback && fallback) {
+      setUsingFallback(true);
+      setActiveUrl(fallback);
+      setErrored(false);
+    } else {
+      setErrored(true);
+      setLoading(false);
+    }
+  };
+
+  const retry = () => {
+    setErrored(false);
+    setLoading(true);
+    setUsingFallback(false);
+    setActiveUrl(url);
+    setRetryKey((k) => k + 1);
+  };
+
   useEffect(() => {
-    if (!isVideo || !url) return;
+    if (!isVideo || !activeUrl || invalid) return;
     const video = videoRef.current;
     if (!video) return;
     setLoading(true);
@@ -93,12 +137,15 @@ export default function StreamPlayer({
     setCurrentQuality(-1);
 
     const onReady = () => setLoading(false);
+    const onErr = () => handleStreamError();
     video.addEventListener("loadeddata", onReady);
     video.addEventListener("playing", onReady);
+    video.addEventListener("error", onErr);
 
     const cleanup = () => {
       video.removeEventListener("loadeddata", onReady);
       video.removeEventListener("playing", onReady);
+      video.removeEventListener("error", onErr);
       if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
       if (dashRef.current) { try { dashRef.current.reset(); } catch {} dashRef.current = null; }
       if (flvRef.current) { try { flvRef.current.destroy(); } catch {} flvRef.current = null; }
@@ -108,7 +155,7 @@ export default function StreamPlayer({
       if (Hls.isSupported()) {
         const hls = new Hls({ enableWorker: true });
         hlsRef.current = hls;
-        hls.loadSource(url);
+        hls.loadSource(activeUrl);
         hls.attachMedia(video);
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           const levels: QualityLevel[] = hls.levels.map((l, i) => ({
@@ -119,29 +166,39 @@ export default function StreamPlayer({
           setCurrentQuality(-1);
           video.play().catch(() => {});
         });
+        hls.on(Hls.Events.ERROR, (_e, data) => {
+          if (data.fatal) handleStreamError();
+        });
       } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-        video.src = url;
+        video.src = activeUrl;
         video.play().catch(() => {});
       }
     } else if (kind === "dash") {
-      const player = dashjs.MediaPlayer().create();
-      dashRef.current = player;
-      player.initialize(video, url, true);
+      try {
+        const player = dashjs.MediaPlayer().create();
+        dashRef.current = player;
+        player.initialize(video, activeUrl, true);
+        player.on("error", () => handleStreamError());
+      } catch { handleStreamError(); }
     } else if (kind === "flv") {
       if (flvjs.isSupported()) {
-        const player = flvjs.createPlayer({ type: "flv", url, isLive: true });
-        flvRef.current = player;
-        player.attachMediaElement(video);
-        player.load();
-        Promise.resolve(player.play()).catch(() => {});
-      }
+        try {
+          const player = flvjs.createPlayer({ type: "flv", url: activeUrl, isLive: true });
+          flvRef.current = player;
+          player.attachMediaElement(video);
+          player.load();
+          Promise.resolve(player.play()).catch(() => {});
+          player.on(flvjs.Events.ERROR, () => handleStreamError());
+        } catch { handleStreamError(); }
+      } else handleStreamError();
     } else {
-      video.src = url;
+      video.src = activeUrl;
       video.play().catch(() => {});
     }
 
     return cleanup;
-  }, [url, kind, isVideo]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeUrl, kind, isVideo, invalid, retryKey]);
 
   const setQuality = (id: number) => {
     setCurrentQuality(id);
@@ -172,10 +229,7 @@ export default function StreamPlayer({
   const shareUrl = typeof window !== "undefined" ? window.location.href : "";
   const handleShare = async () => {
     if (typeof navigator !== "undefined" && (navigator as any).share) {
-      try {
-        await (navigator as any).share({ title, url: shareUrl });
-        return;
-      } catch {}
+      try { await (navigator as any).share({ title, url: shareUrl }); return; } catch {}
     }
     setShowShare((s) => !s);
   };
@@ -191,13 +245,13 @@ export default function StreamPlayer({
 
   return (
     <div className="flex flex-col">
-      {/* Per-player title section */}
+      {/* Per-player title */}
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[10px] sm:text-xs uppercase tracking-[0.22em] text-muted-foreground">
-            Player {index + 1}
+            Player {index + 1}{usingFallback && " · Fallback"}
           </p>
-          <h2 className="font-display text-lg sm:text-2xl font-semibold tracking-tight truncate">
+          <h2 className="font-display text-lg sm:text-2xl md:text-3xl font-semibold tracking-tight truncate">
             {title || `Stream ${index + 1}`}
           </h2>
         </div>
@@ -211,7 +265,7 @@ export default function StreamPlayer({
         ref={wrapRef}
         className="relative w-full aspect-video rounded-2xl sm:rounded-3xl overflow-hidden bg-black border border-border shadow-2xl shadow-black/60 group"
       >
-        {!url && (
+        {!activeUrl && (
           <div className="absolute inset-0 grid place-items-center px-6 text-center">
             <div>
               <div className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.25em] text-muted-foreground mb-3">
@@ -226,9 +280,20 @@ export default function StreamPlayer({
           </div>
         )}
 
-        {isVideo && url && (
+        {activeUrl && invalid && (
+          <div className="absolute inset-0 grid place-items-center px-6 text-center bg-black/70">
+            <div className="text-white">
+              <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-amber-400" />
+              <h3 className="font-display text-lg sm:text-xl font-semibold mb-1">Invalid stream URL</h3>
+              <p className="text-xs text-white/60">Check the spreadsheet for this stream.</p>
+            </div>
+          </div>
+        )}
+
+        {isVideo && activeUrl && !invalid && (
           <>
             <video
+              key={retryKey}
               ref={videoRef}
               className="w-full h-full object-contain bg-black"
               controls
@@ -236,37 +301,58 @@ export default function StreamPlayer({
               autoPlay
               muted
             />
-            {loading && (
+            {loading && !errored && (
               <div className="absolute inset-0 grid place-items-center bg-black/70 backdrop-blur-sm z-10 pointer-events-none">
-                <div className="relative w-12 h-12">
-                  <div className="absolute inset-0 rounded-full border-2 border-white/10" />
-                  <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-accent animate-spin-slow" />
+                <div className="flex flex-col items-center gap-3 text-white/80">
+                  <div className="relative w-12 h-12">
+                    <div className="absolute inset-0 rounded-full border-2 border-white/10" />
+                    <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-accent animate-spin-slow" />
+                  </div>
+                  <p className="text-xs uppercase tracking-[0.25em]">Loading stream…</p>
+                </div>
+              </div>
+            )}
+            {errored && (
+              <div className="absolute inset-0 grid place-items-center bg-black/80 z-20 px-6 text-center">
+                <div className="text-white">
+                  <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-amber-400" />
+                  <h3 className="font-display text-lg sm:text-xl font-semibold mb-1">Stream unavailable</h3>
+                  <p className="text-xs text-white/60 mb-4">We couldn't reach this source.</p>
+                  <button
+                    onClick={retry}
+                    className="inline-flex items-center gap-1.5 h-9 px-4 rounded-full bg-white/10 hover:bg-white/20 text-sm"
+                  >
+                    <RotateCw className="w-4 h-4" /> Retry
+                  </button>
                 </div>
               </div>
             )}
           </>
         )}
-        {kind === "youtube" && (
+        {kind === "youtube" && !invalid && (
           <iframe
-            src={toYouTubeEmbed(url)}
+            key={retryKey}
+            src={toYouTubeEmbed(activeUrl)}
             title={title}
             className="w-full h-full"
             allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
             allowFullScreen
           />
         )}
-        {kind === "twitch" && (
+        {kind === "twitch" && !invalid && (
           <iframe
-            src={toTwitchEmbed(url)}
+            key={retryKey}
+            src={toTwitchEmbed(activeUrl)}
             title={title}
             className="w-full h-full"
             allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
             allowFullScreen
           />
         )}
-        {kind === "iframe" && url && (
+        {kind === "iframe" && activeUrl && !invalid && (
           <iframe
-            src={url}
+            key={retryKey}
+            src={activeUrl}
             title={title}
             className="w-full h-full"
             allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
@@ -274,9 +360,12 @@ export default function StreamPlayer({
           />
         )}
 
+        {/* Movable overlays */}
+        {overlays.length > 0 && activeUrl && !invalid && <OverlayLayer overlays={overlays} />}
+
         {/* Action overlay */}
-        {url && (
-          <div className="absolute top-3 right-3 z-20 flex items-center gap-2 opacity-90 hover:opacity-100 transition">
+        {activeUrl && !invalid && (
+          <div className="absolute top-3 right-3 z-40 flex items-center gap-2 opacity-90 hover:opacity-100 transition">
             {isVideo && (
               <ActionBtn label={muted ? "Unmute" : "Mute"} onClick={toggleMute}>
                 {muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
@@ -288,7 +377,7 @@ export default function StreamPlayer({
                   <Settings className="w-4 h-4" />
                 </ActionBtn>
                 {showQuality && (
-                  <div className="absolute right-0 mt-2 min-w-[140px] rounded-xl bg-black/85 backdrop-blur border border-white/10 p-1 text-sm shadow-xl z-30">
+                  <div className="absolute right-0 mt-2 min-w-[140px] rounded-xl bg-black/85 backdrop-blur border border-white/10 p-1 text-sm shadow-xl z-50">
                     <QualityItem active={currentQuality === -1} label="Auto" onClick={() => setQuality(-1)} />
                     {qualities.map((q) => (
                       <QualityItem key={q.id} active={currentQuality === q.id} label={q.label} onClick={() => setQuality(q.id)} />
@@ -297,6 +386,9 @@ export default function StreamPlayer({
                 )}
               </div>
             )}
+            <ActionBtn label="Retry" onClick={retry}>
+              <RotateCw className="w-4 h-4" />
+            </ActionBtn>
             {isVideo && (
               <ActionBtn label="Picture-in-picture" onClick={handlePiP}>
                 <PictureInPicture2 className="w-4 h-4" />
@@ -307,7 +399,7 @@ export default function StreamPlayer({
                 <Share2 className="w-4 h-4" />
               </ActionBtn>
               {showShare && (
-                <div className="absolute right-0 mt-2 w-64 rounded-xl bg-black/85 backdrop-blur border border-white/10 p-3 text-sm shadow-xl text-white z-30">
+                <div className="absolute right-0 mt-2 w-64 rounded-xl bg-black/85 backdrop-blur border border-white/10 p-3 text-sm shadow-xl text-white z-50">
                   <p className="text-xs text-white/60 mb-2">Share this stream</p>
                   <div className="flex items-center gap-2">
                     <input
