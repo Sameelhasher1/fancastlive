@@ -11,22 +11,22 @@ function formatNum(n: number) {
 function AnimatedNumber({ value }: { value: number }) {
   const [display, setDisplay] = useState(value);
   const rafRef = useRef<number | null>(null);
+  const fromRef = useRef(value);
 
   useEffect(() => {
-    const from = display;
+    const from = fromRef.current;
     const start = performance.now();
     const duration = 800;
     const tick = (t: number) => {
       const p = Math.min(1, (t - start) / duration);
       const eased = 1 - Math.pow(1 - p, 3);
-      setDisplay(Math.round(from + (value - from) * eased));
+      const v = Math.round(from + (value - from) * eased);
+      setDisplay(v);
       if (p < 1) rafRef.current = requestAnimationFrame(tick);
+      else fromRef.current = value;
     };
     rafRef.current = requestAnimationFrame(tick);
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
   }, [value]);
 
   return <span className="tabular-nums">{formatNum(display)}</span>;
@@ -34,40 +34,27 @@ function AnimatedNumber({ value }: { value: number }) {
 
 export default function ViewerCount() {
   const [count, setCount] = useState<number>(0);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
     let cancelled = false;
-
     const sessionKey = "fancast-viewer-session";
     const isNewSession = !sessionStorage.getItem(sessionKey);
 
-    const initial = async () => {
+    const fetchCount = async (bump: boolean) => {
       try {
-        const url = isNewSession ? `${COUNTER_URL}/up` : `${COUNTER_URL}/`;
+        const url = bump ? `${COUNTER_URL}/up` : `${COUNTER_URL}/`;
         const r = await fetch(url, { cache: "no-store" });
         const j = await r.json();
         const v = Number(j?.count ?? j?.value ?? 0);
         if (!cancelled && v > 0) setCount(v);
-        if (isNewSession) sessionStorage.setItem(sessionKey, "1");
-      } catch {
-        if (!cancelled) setCount(1240 + Math.floor(Math.random() * 800));
-      }
-    };
-    initial();
-
-    const id = setInterval(async () => {
-      try {
-        const r = await fetch(`${COUNTER_URL}/`, { cache: "no-store" });
-        const j = await r.json();
-        const v = Number(j?.count ?? j?.value ?? 0);
-        if (!cancelled && v > 0) setCount(v);
+        if (bump) sessionStorage.setItem(sessionKey, "1");
       } catch {}
-    }, 10000);
-
-    return () => {
-      cancelled = true;
-      clearInterval(id);
     };
+    fetchCount(isNewSession);
+    const id = setInterval(() => fetchCount(false), 7000);
+    return () => { cancelled = true; clearInterval(id); };
   }, []);
 
   return (
@@ -77,8 +64,8 @@ export default function ViewerCount() {
         <span className="relative inline-flex rounded-full h-2 w-2 bg-accent" />
       </span>
       <Eye className="w-3.5 h-3.5 text-muted-foreground" />
-      <AnimatedNumber value={count} />
-      <span className="text-muted-foreground hidden sm:inline">viewers</span>
+      {mounted && count > 0 ? <AnimatedNumber value={count} /> : <span className="tabular-nums text-muted-foreground">—</span>}
+      <span className="text-muted-foreground hidden sm:inline">watching</span>
     </div>
   );
 }

@@ -14,20 +14,6 @@ export type Branding = {
 export type StreamItem = { title: string; url: string; fallback?: string };
 export type BannerItem = { url: string; link?: string };
 
-export type OverlayItem = {
-  id: string;
-  player: 1 | 2;
-  type: "text" | "rect" | "circle";
-  text?: string;
-  color: string;
-  bg?: string;
-  x: number; // percent 0-100
-  y: number;
-  w: number;
-  h: number;
-  fontSize?: number;
-};
-
 export type SiteSettings = {
   branding: Branding;
   mainTitle: string;
@@ -39,17 +25,10 @@ export type SiteSettings = {
   whatsapp?: string;
   facebook?: string;
   twitter?: string;
-  // Maintenance
   maintenanceMode: boolean;
   maintenanceTitle: string;
   maintenanceTagline: string;
   maintenanceBackground: string;
-  // Festival
-  festivalEnabled: boolean;
-  festivalTitle: string;
-  festivalSubtitle: string;
-  // Overlays
-  overlays: OverlayItem[];
 };
 
 const FALLBACK_BRANDING: Branding = {
@@ -73,13 +52,12 @@ const FALLBACK_SETTINGS: SiteSettings = {
   maintenanceTitle: "Site Under Maintenance",
   maintenanceTagline: "We'll be back shortly.",
   maintenanceBackground: "",
-  festivalEnabled: false,
-  festivalTitle: "",
-  festivalSubtitle: "",
-  overlays: [],
 };
 
-const CACHE_KEY = "fancast-settings-cache-v2";
+const CACHE_KEY = "fancast-settings-cache-v3";
+
+// Module-level cache: warm context immediately on remount without waiting for effects
+let MODULE_CACHE: SiteSettings | null = null;
 
 type Ctx = { settings: SiteSettings; branding: Branding; loading: boolean; error: string | null };
 const SettingsContext = createContext<Ctx>({
@@ -152,7 +130,6 @@ function parseSettings(text: string): SiteSettings {
     secondaryColor: g("SecondaryColor", "Secondary") || FALLBACK_BRANDING.secondaryColor,
   };
 
-  // Streams (1..4) + fallback
   const streams: StreamItem[] = [];
   for (let i = 1; i <= 4; i++) {
     const t = g(`Title${i}`, i === 1 ? "Title" : "");
@@ -162,37 +139,10 @@ function parseSettings(text: string): SiteSettings {
   }
   while (streams.length < 2) streams.push({ title: `Stream ${streams.length + 1}`, url: "" });
 
-  // Banners (1..10)
   const banners: BannerItem[] = [];
   for (let i = 1; i <= 10; i++) {
     const url = g(`Banner${i}`, `Image${i}`);
     if (url) banners.push({ url, link: g(`BannerLink${i}`, `BannerURL${i}`) });
-  }
-
-  // Overlays (1..6)
-  const overlays: OverlayItem[] = [];
-  for (let i = 1; i <= 6; i++) {
-    const type = (g(`Overlay${i}_Type`, `Overlay${i}Type`) || "").toLowerCase();
-    if (!["text", "rect", "circle"].includes(type)) continue;
-    const player = (g(`Overlay${i}_Player`, `Overlay${i}Player`) || "1").trim() === "2" ? 2 : 1;
-    const text = g(`Overlay${i}_Text`, `Overlay${i}Text`);
-    const color = g(`Overlay${i}_Color`, `Overlay${i}Color`) || "#ffffff";
-    const bg = g(`Overlay${i}_BG`, `Overlay${i}Bg`, `Overlay${i}_Background`);
-    const x = Number(g(`Overlay${i}_X`, `Overlay${i}X`)) || 5;
-    const y = Number(g(`Overlay${i}_Y`, `Overlay${i}Y`)) || 5;
-    const w = Number(g(`Overlay${i}_W`, `Overlay${i}Width`)) || 20;
-    const h = Number(g(`Overlay${i}_H`, `Overlay${i}Height`)) || 10;
-    const fontSize = Number(g(`Overlay${i}_FontSize`, `Overlay${i}FontSize`)) || undefined;
-    overlays.push({
-      id: `o${i}`,
-      player: player as 1 | 2,
-      type: type as "text" | "rect" | "circle",
-      text,
-      color,
-      bg: bg || undefined,
-      x, y, w, h,
-      fontSize,
-    });
   }
 
   return {
@@ -210,10 +160,6 @@ function parseSettings(text: string): SiteSettings {
     maintenanceTitle: g("MaintenanceTitle") || "Site Under Maintenance",
     maintenanceTagline: g("MaintenanceTagline", "MaintenanceMessage") || "We'll be back shortly.",
     maintenanceBackground: g("MaintenanceBackground", "MaintenanceImage", "MaintenanceBG"),
-    festivalEnabled: truthy(g("FestivalEnabled", "Festival")),
-    festivalTitle: g("FestivalTitle"),
-    festivalSubtitle: g("FestivalSubtitle", "FestivalTagline"),
-    overlays,
   };
 }
 
@@ -222,12 +168,22 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Hydrate from cache (client only)
+  // Synchronous hydrate from module cache / localStorage on first client paint
   useEffect(() => {
-    try {
-      const cached = localStorage.getItem(CACHE_KEY);
-      if (cached) setSettings((s) => ({ ...s, ...JSON.parse(cached) }));
-    } catch {}
+    if (MODULE_CACHE) {
+      setSettings(MODULE_CACHE);
+      setLoading(false);
+    } else {
+      try {
+        const cached = localStorage.getItem(CACHE_KEY);
+        if (cached) {
+          const parsed = JSON.parse(cached) as SiteSettings;
+          MODULE_CACHE = parsed;
+          setSettings(parsed);
+          setLoading(false);
+        }
+      } catch {}
+    }
   }, []);
 
   useEffect(() => {
@@ -238,19 +194,22 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
         const text = await r.text();
         if (cancelled) return;
         const next = parseSettings(text);
+        MODULE_CACHE = next;
         setSettings(next);
         try { localStorage.setItem(CACHE_KEY, JSON.stringify(next)); } catch {}
         setLoading(false);
+        setError(null);
       } catch (e) {
         if (!cancelled) { setError(String(e)); setLoading(false); }
       }
     };
     load();
-    const id = setInterval(load, 60_000); // poll every 60s
-    return () => { cancelled = true; clearInterval(id); };
+    const id = setInterval(load, 30_000); // poll every 30s for fresher data
+    const onFocus = () => load();
+    window.addEventListener("focus", onFocus);
+    return () => { cancelled = true; clearInterval(id); window.removeEventListener("focus", onFocus); };
   }, []);
 
-  // Apply favicon / title / colors
   useEffect(() => {
     if (typeof document === "undefined") return;
     const { branding, mainTitle } = settings;

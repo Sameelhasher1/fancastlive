@@ -1,14 +1,15 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
-import { Sun, Moon, Send, Instagram } from "lucide-react";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useEffect, useRef, useState } from "react";
+import { Send, Instagram, Settings as SettingsIcon } from "lucide-react";
 import StreamPlayer from "@/components/StreamPlayer";
 import BannerCarousel from "@/components/BannerCarousel";
 import ViewerCount from "@/components/ViewerCount";
 import MaintenanceScreen from "@/components/MaintenanceScreen";
-import FestivalBanner from "@/components/FestivalBanner";
 import InviteFriends from "@/components/InviteFriends";
 import AutoRefresh from "@/components/AutoRefresh";
+import { BandwidthBadge, useBandwidthGuard } from "@/components/BandwidthGuard";
 import { useSettings } from "@/contexts/BrandingContext";
+import { useUserPrefs } from "@/contexts/UserPrefsContext";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -24,49 +25,40 @@ export const Route = createFileRoute("/")({
 
 function Index() {
   const { settings, loading } = useSettings();
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
-  const [mounted, setMounted] = useState(false);
+  const { prefs } = useUserPrefs();
 
-  useEffect(() => {
-    setMounted(true);
-    const saved = (typeof localStorage !== "undefined" && (localStorage.getItem("fancast-theme") as "dark" | "light" | null)) || "dark";
-    setTheme(saved);
-  }, []);
-  useEffect(() => {
-    if (!mounted) return;
-    document.documentElement.classList.toggle("light", theme === "light");
-    localStorage.setItem("fancast-theme", theme);
-  }, [theme, mounted]);
+  const videoRef1 = useRef<HTMLVideoElement | null>(null);
+  const videoRef2 = useRef<HTMLVideoElement | null>(null);
+  const { usedMB, blocked, resetBlock } = useBandwidthGuard([videoRef1, videoRef2], prefs.bandwidthLimitMB);
 
   if (settings.maintenanceMode) {
     return <MaintenanceScreen />;
   }
 
-  const { branding, streams, banners, overlays } = settings;
+  const { branding, streams, banners } = settings;
+  const refs = [videoRef1, videoRef2];
 
   return (
     <main className="min-h-screen flex flex-col">
       <AutoRefresh />
 
-      {/* Top bar: only viewer count + theme toggle (logo moved below) */}
-      <header className="w-full px-4 sm:px-6 md:px-10 py-4 flex items-center justify-end gap-3 animate-fade-up">
+      <header className="w-full px-4 sm:px-6 md:px-10 py-4 flex items-center justify-end gap-2 sm:gap-3 animate-fade-up">
+        <BandwidthBadge usedMB={usedMB} limitMB={prefs.bandwidthLimitMB} />
         <ViewerCount />
-        <button
-          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-          aria-label="Toggle theme"
+        <Link
+          to="/settings"
+          aria-label="Settings"
           className="h-9 w-9 grid place-items-center rounded-full bg-surface border border-border hover:bg-muted transition-colors"
         >
-          {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-        </button>
+          <SettingsIcon className="w-4 h-4" />
+        </Link>
       </header>
 
       <section className="flex-1 px-4 sm:px-6 md:px-10 pb-12">
         <div className="w-full max-w-6xl mx-auto">
-          {/* Now Streaming label */}
           <div className="text-center animate-fade-up">
             <p className="text-xs sm:text-sm uppercase tracking-[0.3em] text-muted-foreground">Now Streaming</p>
 
-            {/* Logo + site name centered, below "NOW STREAMING" */}
             <div className="mt-4 flex flex-col items-center gap-3">
               {branding.logoUrl ? (
                 <img
@@ -84,13 +76,7 @@ function Index() {
               </span>
             </div>
 
-            {/* Festival greeting (spreadsheet controlled) */}
-            {settings.festivalEnabled && settings.festivalTitle && (
-              <FestivalBanner title={settings.festivalTitle} subtitle={settings.festivalSubtitle} />
-            )}
-
-            {/* Main editable title + tagline */}
-            <h1 className="font-display text-4xl sm:text-6xl md:text-7xl font-bold tracking-tight leading-[1.05] mt-6 bg-gradient-to-b from-foreground to-foreground/70 bg-clip-text text-transparent">
+            <h1 className="font-display text-3xl sm:text-6xl md:text-7xl font-bold tracking-tight leading-[1.05] mt-6 bg-gradient-to-b from-foreground to-foreground/70 bg-clip-text text-transparent">
               {settings.mainTitle}
             </h1>
             <p className="mt-3 text-sm sm:text-base md:text-lg text-muted-foreground max-w-xl mx-auto">
@@ -98,7 +84,6 @@ function Index() {
             </p>
           </div>
 
-          {/* Banner carousel */}
           {banners.length > 0 ? (
             <div className="mt-8 sm:mt-10 max-w-5xl mx-auto animate-fade-up" style={{ animationDelay: "80ms" }}>
               <BannerCarousel items={banners} />
@@ -109,7 +94,13 @@ function Index() {
             </div>
           ) : null}
 
-          {/* Vertical stack of players (larger on desktop) */}
+          {blocked && (
+            <div className="mt-6 max-w-5xl mx-auto rounded-2xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm flex items-center justify-between gap-3">
+              <span>Bandwidth limit reached for this hour. Players have been paused.</span>
+              <button onClick={resetBlock} className="h-8 px-3 rounded-md bg-white/10 hover:bg-white/20 text-xs">Resume anyway</button>
+            </div>
+          )}
+
           <div className="mt-8 sm:mt-10 flex flex-col gap-8 sm:gap-10 max-w-5xl mx-auto">
             {streams.slice(0, 2).map((s, i) => (
               <div key={i} className="animate-fade-up" style={{ animationDelay: `${140 + i * 80}ms` }}>
@@ -118,7 +109,7 @@ function Index() {
                   url={s.url}
                   fallback={s.fallback}
                   index={i}
-                  overlays={overlays.filter((o) => o.player === ((i + 1) as 1 | 2))}
+                  videoRef={refs[i]}
                 />
               </div>
             ))}
@@ -128,7 +119,6 @@ function Index() {
             Premium quality · Low latency · HLS · DASH · FLV · MP4 · WebM · YouTube · Twitch · Iframe
           </p>
 
-          {/* Invite friends */}
           <div className="mt-10 sm:mt-12 animate-fade-up" style={{ animationDelay: "360ms" }}>
             <InviteFriends siteName={branding.siteName} />
           </div>
@@ -142,24 +132,14 @@ function Index() {
           </p>
           <div className="flex items-center gap-2">
             {settings.telegram && (
-              <a
-                href={settings.telegram}
-                target="_blank"
-                rel="noreferrer noopener"
-                aria-label="Telegram"
-                className="h-10 w-10 grid place-items-center rounded-full bg-surface border border-border hover:bg-muted hover:text-accent transition-colors"
-              >
+              <a href={settings.telegram} target="_blank" rel="noreferrer noopener" aria-label="Telegram"
+                className="h-10 w-10 grid place-items-center rounded-full bg-surface border border-border hover:bg-muted hover:text-accent transition-colors">
                 <Send className="w-4 h-4" />
               </a>
             )}
             {settings.instagram && (
-              <a
-                href={settings.instagram}
-                target="_blank"
-                rel="noreferrer noopener"
-                aria-label="Instagram"
-                className="h-10 w-10 grid place-items-center rounded-full bg-surface border border-border hover:bg-muted hover:text-accent transition-colors"
-              >
+              <a href={settings.instagram} target="_blank" rel="noreferrer noopener" aria-label="Instagram"
+                className="h-10 w-10 grid place-items-center rounded-full bg-surface border border-border hover:bg-muted hover:text-accent transition-colors">
                 <Instagram className="w-4 h-4" />
               </a>
             )}
