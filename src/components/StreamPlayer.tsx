@@ -13,9 +13,10 @@ import {
   VolumeX,
   RotateCw,
   AlertTriangle,
+  Shield,
 } from "lucide-react";
-import OverlayLayer from "@/components/OverlayLayer";
-import type { OverlayItem } from "@/contexts/BrandingContext";
+import { HealthBadge, useStreamHealth } from "@/components/StreamHealth";
+import { useUserPrefs } from "@/contexts/UserPrefsContext";
 
 type QualityLevel = { id: number; label: string };
 
@@ -71,14 +72,15 @@ export default function StreamPlayer({
   url,
   fallback,
   index,
-  overlays = [],
+  videoRef: externalVideoRef,
 }: {
   title: string;
   url: string;
   fallback?: string;
   index: number;
-  overlays?: OverlayItem[];
+  videoRef?: React.MutableRefObject<HTMLVideoElement | null>;
 }) {
+  const { prefs } = useUserPrefs();
   const [activeUrl, setActiveUrl] = useState(url);
   const [usingFallback, setUsingFallback] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
@@ -94,7 +96,11 @@ export default function StreamPlayer({
   const isVideo = kind === "hls" || kind === "dash" || kind === "flv" || kind === "mp4" || kind === "webm";
   const invalid = !!activeUrl && !isValidUrl(activeUrl);
 
-  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const localVideoRef = useRef<HTMLVideoElement | null>(null);
+  const setVideoRef = (el: HTMLVideoElement | null) => {
+    localVideoRef.current = el;
+    if (externalVideoRef) externalVideoRef.current = el;
+  };
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const hlsRef = useRef<Hls | null>(null);
   const dashRef = useRef<dashjs.MediaPlayerClass | null>(null);
@@ -108,7 +114,8 @@ export default function StreamPlayer({
   const [copied, setCopied] = useState(false);
   const [muted, setMuted] = useState(true);
 
-  // Try fallback then mark errored
+  const { health, buffer, bitrateKbps } = useStreamHealth(localVideoRef, isVideo && !!activeUrl && !invalid);
+
   const handleStreamError = () => {
     if (!usingFallback && fallback) {
       setUsingFallback(true);
@@ -128,9 +135,10 @@ export default function StreamPlayer({
     setRetryKey((k) => k + 1);
   };
 
+  // Apply data-mode + playback-mode tuning when (re)building player
   useEffect(() => {
     if (!isVideo || !activeUrl || invalid) return;
-    const video = videoRef.current;
+    const video = localVideoRef.current;
     if (!video) return;
     setLoading(true);
     setQualities([]);
@@ -151,9 +159,18 @@ export default function StreamPlayer({
       if (flvRef.current) { try { flvRef.current.destroy(); } catch {} flvRef.current = null; }
     };
 
+    const ultra = prefs.playbackMode === "ultra-low";
+    const buffer = prefs.playbackMode === "buffer-protection";
+
     if (kind === "hls") {
       if (Hls.isSupported()) {
-        const hls = new Hls({ enableWorker: true });
+        const hls = new Hls({
+          enableWorker: true,
+          lowLatencyMode: ultra,
+          maxBufferLength: ultra ? 6 : buffer ? 60 : 30,
+          maxMaxBufferLength: ultra ? 10 : buffer ? 120 : 60,
+          backBufferLength: buffer ? 30 : 10,
+        });
         hlsRef.current = hls;
         hls.loadSource(activeUrl);
         hls.attachMedia(video);
@@ -163,7 +180,18 @@ export default function StreamPlayer({
             label: l.height ? `${l.height}p` : `${Math.round((l.bitrate || 0) / 1000)}k`,
           }));
           setQualities(levels);
-          setCurrentQuality(-1);
+          // Apply data-saver cap
+          if (prefs.dataMode === "saver" && levels.length) {
+            const low = levels.findIndex((l) => /\d+p/.test(l.label) && parseInt(l.label) <= 360);
+            hls.currentLevel = low >= 0 ? low : 0;
+            setCurrentQuality(hls.currentLevel);
+          } else if (prefs.dataMode === "max") {
+            const top = levels.length - 1;
+            hls.currentLevel = top;
+            setCurrentQuality(top);
+          } else {
+            setCurrentQuality(-1);
+          }
           video.play().catch(() => {});
         });
         hls.on(Hls.Events.ERROR, (_e, data) => {
@@ -198,7 +226,7 @@ export default function StreamPlayer({
 
     return cleanup;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeUrl, kind, isVideo, invalid, retryKey]);
+  }, [activeUrl, kind, isVideo, invalid, retryKey, prefs.playbackMode, prefs.dataMode]);
 
   const setQuality = (id: number) => {
     setCurrentQuality(id);
@@ -207,7 +235,7 @@ export default function StreamPlayer({
   };
 
   const handlePiP = async () => {
-    const v = videoRef.current as any;
+    const v = localVideoRef.current as any;
     try {
       if (document.pictureInPictureElement) await (document as any).exitPictureInPicture();
       else if (v?.requestPictureInPicture) await v.requestPictureInPicture();
@@ -220,8 +248,8 @@ export default function StreamPlayer({
       if (document.fullscreenElement) await document.exitFullscreen();
       else if (el?.requestFullscreen) await el.requestFullscreen();
       else if (el?.webkitRequestFullscreen) el.webkitRequestFullscreen();
-      else if (videoRef.current && (videoRef.current as any).webkitEnterFullscreen) {
-        (videoRef.current as any).webkitEnterFullscreen();
+      else if (localVideoRef.current && (localVideoRef.current as any).webkitEnterFullscreen) {
+        (localVideoRef.current as any).webkitEnterFullscreen();
       }
     } catch {}
   };
@@ -240,25 +268,31 @@ export default function StreamPlayer({
   const toggleMute = () => {
     const next = !muted;
     setMuted(next);
-    if (videoRef.current) videoRef.current.muted = next;
+    if (localVideoRef.current) localVideoRef.current.muted = next;
   };
 
   return (
     <div className="flex flex-col">
-      {/* Per-player title */}
-      <div className="mb-3 flex items-center justify-between gap-3">
+      <div className="mb-3 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
         <div className="min-w-0">
           <p className="text-[10px] sm:text-xs uppercase tracking-[0.22em] text-muted-foreground">
             Player {index + 1}{usingFallback && " · Fallback"}
           </p>
-          <h2 className="font-display text-lg sm:text-2xl md:text-3xl font-semibold tracking-tight truncate">
+          <h2 className="font-display text-base sm:text-2xl md:text-3xl font-semibold tracking-tight truncate">
             {title || `Stream ${index + 1}`}
           </h2>
         </div>
-        <span className="shrink-0 inline-flex items-center gap-1.5 px-2.5 h-7 rounded-full bg-surface border border-border text-[10px] uppercase tracking-wider text-muted-foreground">
-          <span className="live-dot" />
-          Live
-        </span>
+        <div className="flex items-center gap-2 shrink-0">
+          {prefs.playbackMode === "buffer-protection" && (
+            <span className="hidden sm:inline-flex items-center gap-1 px-2 h-7 rounded-full bg-surface border border-border text-[10px] uppercase tracking-wider text-muted-foreground">
+              <Shield className="w-3 h-3" /> Buffer Mode
+            </span>
+          )}
+          <span className="inline-flex items-center gap-1.5 px-2.5 h-7 rounded-full bg-surface border border-border text-[10px] uppercase tracking-wider text-muted-foreground">
+            <span className="live-dot" />
+            Live
+          </span>
+        </div>
       </div>
 
       <div
@@ -294,13 +328,14 @@ export default function StreamPlayer({
           <>
             <video
               key={retryKey}
-              ref={videoRef}
+              ref={setVideoRef}
               className="w-full h-full object-contain bg-black"
               controls
               playsInline
               autoPlay
               muted
             />
+            {!loading && !errored && <HealthBadge health={health} buffer={buffer} bitrateKbps={bitrateKbps} />}
             {loading && !errored && (
               <div className="absolute inset-0 grid place-items-center bg-black/70 backdrop-blur-sm z-10 pointer-events-none">
                 <div className="flex flex-col items-center gap-3 text-white/80">
@@ -360,12 +395,8 @@ export default function StreamPlayer({
           />
         )}
 
-        {/* Movable overlays */}
-        {overlays.length > 0 && activeUrl && !invalid && <OverlayLayer overlays={overlays} />}
-
-        {/* Action overlay */}
         {activeUrl && !invalid && (
-          <div className="absolute top-3 right-3 z-40 flex items-center gap-2 opacity-90 hover:opacity-100 transition">
+          <div className="absolute top-3 right-3 z-40 flex items-center gap-1.5 sm:gap-2 opacity-90 hover:opacity-100 transition">
             {isVideo && (
               <ActionBtn label={muted ? "Unmute" : "Mute"} onClick={toggleMute}>
                 {muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
@@ -434,7 +465,7 @@ function ActionBtn({ children, label, onClick }: { children: React.ReactNode; la
       onClick={onClick}
       aria-label={label}
       title={label}
-      className="h-9 w-9 grid place-items-center rounded-full bg-black/55 hover:bg-black/75 backdrop-blur text-white border border-white/10 transition-colors"
+      className="h-8 w-8 sm:h-9 sm:w-9 grid place-items-center rounded-full bg-black/55 hover:bg-black/75 backdrop-blur text-white border border-white/10 transition-colors"
     >
       {children}
     </button>
