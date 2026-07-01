@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Eye } from "lucide-react";
-
-const COUNTER_URL = "https://api.counterapi.dev/v1/fancast/viewers";
+import { getFirebase, isFirebaseConfigured } from "@/lib/firebase";
 
 function formatNum(n: number) {
   if (n >= 1000) return (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "K";
@@ -16,7 +15,7 @@ function AnimatedNumber({ value }: { value: number }) {
   useEffect(() => {
     const from = fromRef.current;
     const start = performance.now();
-    const duration = 800;
+    const duration = 700;
     const tick = (t: number) => {
       const p = Math.min(1, (t - start) / duration);
       const eased = 1 - Math.pow(1 - p, 3);
@@ -38,23 +37,32 @@ export default function ViewerCount() {
 
   useEffect(() => {
     setMounted(true);
-    let cancelled = false;
-    const sessionKey = "fancast-viewer-session";
-    const isNewSession = !sessionStorage.getItem(sessionKey);
-
-    const fetchCount = async (bump: boolean) => {
+    if (!isFirebaseConfigured) return;
+    let cleanup: (() => void) | undefined;
+    (async () => {
       try {
-        const url = bump ? `${COUNTER_URL}/up` : `${COUNTER_URL}/`;
-        const r = await fetch(url, { cache: "no-store" });
-        const j = await r.json();
-        const v = Number(j?.count ?? j?.value ?? 0);
-        if (!cancelled && v > 0) setCount(v);
-        if (bump) sessionStorage.setItem(sessionKey, "1");
+        const { rtdb } = getFirebase();
+        if (!rtdb) return;
+        const { ref, push, onValue, onDisconnect, remove, serverTimestamp, set } = await import(
+          "firebase/database"
+        );
+        const listRef = ref(rtdb, "presence");
+        const myRef = push(listRef);
+        await set(myRef, { t: serverTimestamp() });
+        onDisconnect(myRef).remove();
+        const unsub = onValue(listRef, (snap) => {
+          setCount(snap.size || 0);
+        });
+        const onBeforeUnload = () => { try { remove(myRef); } catch {} };
+        window.addEventListener("beforeunload", onBeforeUnload);
+        cleanup = () => {
+          window.removeEventListener("beforeunload", onBeforeUnload);
+          try { unsub(); } catch {}
+          try { remove(myRef); } catch {}
+        };
       } catch {}
-    };
-    fetchCount(isNewSession);
-    const id = setInterval(() => fetchCount(false), 7000);
-    return () => { cancelled = true; clearInterval(id); };
+    })();
+    return () => { if (cleanup) cleanup(); };
   }, []);
 
   return (
