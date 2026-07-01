@@ -50,6 +50,7 @@
     "dashjs": "^5.2.0",
     "date-fns": "^4.1.0",
     "embla-carousel-react": "^8.6.0",
+    "firebase": "^12.15.0",
     "flv.js": "^1.6.2",
     "hls.js": "^1.6.16",
     "input-otp": "^1.4.2",

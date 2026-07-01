@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useRef } from "react";
 import { Send, Instagram, Settings as SettingsIcon } from "lucide-react";
 import StreamPlayer from "@/components/StreamPlayer";
 import BannerCarousel from "@/components/BannerCarousel";
@@ -7,6 +7,7 @@ import ViewerCount from "@/components/ViewerCount";
 import MaintenanceScreen from "@/components/MaintenanceScreen";
 import InviteFriends from "@/components/InviteFriends";
 import AutoRefresh from "@/components/AutoRefresh";
+import DonationCard from "@/components/DonationCard";
 import { BandwidthBadge, useBandwidthGuard } from "@/components/BandwidthGuard";
 import { useSettings } from "@/contexts/BrandingContext";
 import { useUserPrefs } from "@/contexts/UserPrefsContext";
@@ -108,12 +109,15 @@ function Index() {
                   title={s.title}
                   url={s.url}
                   fallback={s.fallback}
+                  type={s.type}
                   index={i}
                   videoRef={refs[i]}
                 />
               </div>
             ))}
           </div>
+
+          <DonationCard donations={settings.donations} />
 
           <p className="text-center text-xs text-muted-foreground mt-8 animate-fade-up" style={{ animationDelay: "320ms" }}>
             Premium quality · Low latency · HLS · DASH · FLV · MP4 · WebM · YouTube · Twitch · Iframe
