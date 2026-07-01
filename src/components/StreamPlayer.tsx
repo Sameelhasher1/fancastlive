@@ -1,7 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import Hls from "hls.js";
-import * as dashjs from "dashjs";
-import flvjs from "flv.js";
 import {
   Maximize,
   PictureInPicture2,
@@ -22,14 +19,20 @@ type QualityLevel = { id: number; label: string };
 
 export type StreamKind = "hls" | "dash" | "flv" | "mp4" | "webm" | "youtube" | "twitch" | "iframe" | "empty";
 
-export function detectKind(url: string): StreamKind {
+export function detectKind(url: string, override?: string): StreamKind {
+  if (override) {
+    const o = override.toLowerCase();
+    if (["hls", "dash", "flv", "mp4", "webm", "youtube", "twitch", "iframe"].includes(o)) {
+      return o as StreamKind;
+    }
+  }
   if (!url) return "empty";
-  const u = url.toLowerCase();
+  const u = url.toLowerCase().split("?")[0];
   if (u.includes(".m3u8")) return "hls";
   if (u.includes(".mpd")) return "dash";
   if (u.includes(".flv")) return "flv";
-  if (u.endsWith(".mp4") || u.includes(".mp4?")) return "mp4";
-  if (u.endsWith(".webm") || u.includes(".webm?")) return "webm";
+  if (u.endsWith(".mp4")) return "mp4";
+  if (u.endsWith(".webm") || u.endsWith(".ogg") || u.endsWith(".ogv")) return "webm";
   if (u.includes("youtube.com") || u.includes("youtu.be")) return "youtube";
   if (u.includes("twitch.tv")) return "twitch";
   return "iframe";
@@ -44,14 +47,14 @@ function toYouTubeEmbed(url: string): string {
     const u = new URL(url);
     if (u.hostname.includes("youtu.be")) {
       const id = u.pathname.slice(1);
-      return `https://www.youtube.com/embed/${id}?autoplay=1&mute=1&rel=0`;
+      return `https://www.youtube.com/embed/${id}?autoplay=1&mute=1&playsinline=1&rel=0`;
     }
     if (u.pathname.startsWith("/embed/")) {
       const sep = url.includes("?") ? "&" : "?";
-      return `${url}${sep}autoplay=1&mute=1&rel=0`;
+      return `${url}${sep}autoplay=1&mute=1&playsinline=1&rel=0`;
     }
     const id = u.searchParams.get("v");
-    if (id) return `https://www.youtube.com/embed/${id}?autoplay=1&mute=1&rel=0`;
+    if (id) return `https://www.youtube.com/embed/${id}?autoplay=1&mute=1&playsinline=1&rel=0`;
   } catch {}
   return url;
 }
@@ -71,12 +74,14 @@ export default function StreamPlayer({
   title,
   url,
   fallback,
+  type,
   index,
   videoRef: externalVideoRef,
 }: {
   title: string;
   url: string;
   fallback?: string;
+  type?: string;
   index: number;
   videoRef?: React.MutableRefObject<HTMLVideoElement | null>;
 }) {
@@ -85,14 +90,16 @@ export default function StreamPlayer({
   const [usingFallback, setUsingFallback] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
   const [errored, setErrored] = useState(false);
+  const recoveryAttemptsRef = useRef(0);
 
   useEffect(() => {
     setActiveUrl(url);
     setUsingFallback(false);
     setErrored(false);
+    recoveryAttemptsRef.current = 0;
   }, [url]);
 
-  const kind = useMemo(() => detectKind(activeUrl), [activeUrl]);
+  const kind = useMemo(() => detectKind(activeUrl, type), [activeUrl, type]);
   const isVideo = kind === "hls" || kind === "dash" || kind === "flv" || kind === "mp4" || kind === "webm";
   const invalid = !!activeUrl && !isValidUrl(activeUrl);
 
@@ -102,9 +109,9 @@ export default function StreamPlayer({
     if (externalVideoRef) externalVideoRef.current = el;
   };
   const wrapRef = useRef<HTMLDivElement | null>(null);
-  const hlsRef = useRef<Hls | null>(null);
-  const dashRef = useRef<dashjs.MediaPlayerClass | null>(null);
-  const flvRef = useRef<flvjs.Player | null>(null);
+  const hlsRef = useRef<any>(null);
+  const dashRef = useRef<any>(null);
+  const flvRef = useRef<any>(null);
 
   const [loading, setLoading] = useState(true);
   const [qualities, setQualities] = useState<QualityLevel[]>([]);
@@ -116,11 +123,12 @@ export default function StreamPlayer({
 
   const { health, buffer, bitrateKbps } = useStreamHealth(localVideoRef, isVideo && !!activeUrl && !invalid);
 
-  const handleStreamError = () => {
+  const swapToFallback = () => {
     if (!usingFallback && fallback) {
       setUsingFallback(true);
       setActiveUrl(fallback);
       setErrored(false);
+      recoveryAttemptsRef.current = 0;
     } else {
       setErrored(true);
       setLoading(false);
@@ -132,20 +140,24 @@ export default function StreamPlayer({
     setLoading(true);
     setUsingFallback(false);
     setActiveUrl(url);
+    recoveryAttemptsRef.current = 0;
     setRetryKey((k) => k + 1);
   };
 
-  // Apply data-mode + playback-mode tuning when (re)building player
+  // Build player when source changes
   useEffect(() => {
+    if (typeof window === "undefined") return;
     if (!isVideo || !activeUrl || invalid) return;
     const video = localVideoRef.current;
     if (!video) return;
+    let cancelled = false;
+
     setLoading(true);
     setQualities([]);
     setCurrentQuality(-1);
 
     const onReady = () => setLoading(false);
-    const onErr = () => handleStreamError();
+    const onErr = () => swapToFallback();
     video.addEventListener("loadeddata", onReady);
     video.addEventListener("playing", onReady);
     video.addEventListener("error", onErr);
@@ -154,77 +166,98 @@ export default function StreamPlayer({
       video.removeEventListener("loadeddata", onReady);
       video.removeEventListener("playing", onReady);
       video.removeEventListener("error", onErr);
-      if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
+      if (hlsRef.current) { try { hlsRef.current.destroy(); } catch {} hlsRef.current = null; }
       if (dashRef.current) { try { dashRef.current.reset(); } catch {} dashRef.current = null; }
       if (flvRef.current) { try { flvRef.current.destroy(); } catch {} flvRef.current = null; }
     };
 
     const ultra = prefs.playbackMode === "ultra-low";
-    const buffer = prefs.playbackMode === "buffer-protection";
+    const bufferMode = prefs.playbackMode === "buffer-protection";
 
-    if (kind === "hls") {
-      if (Hls.isSupported()) {
-        const hls = new Hls({
-          enableWorker: true,
-          lowLatencyMode: ultra,
-          maxBufferLength: ultra ? 6 : buffer ? 60 : 30,
-          maxMaxBufferLength: ultra ? 10 : buffer ? 120 : 60,
-          backBufferLength: buffer ? 30 : 10,
-        });
-        hlsRef.current = hls;
-        hls.loadSource(activeUrl);
-        hls.attachMedia(video);
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          const levels: QualityLevel[] = hls.levels.map((l, i) => ({
-            id: i,
-            label: l.height ? `${l.height}p` : `${Math.round((l.bitrate || 0) / 1000)}k`,
-          }));
-          setQualities(levels);
-          // Apply data-saver cap
-          if (prefs.dataMode === "saver" && levels.length) {
-            const low = levels.findIndex((l) => /\d+p/.test(l.label) && parseInt(l.label) <= 360);
-            hls.currentLevel = low >= 0 ? low : 0;
-            setCurrentQuality(hls.currentLevel);
-          } else if (prefs.dataMode === "max") {
-            const top = levels.length - 1;
-            hls.currentLevel = top;
-            setCurrentQuality(top);
-          } else {
-            setCurrentQuality(-1);
-          }
-          video.play().catch(() => {});
-        });
-        hls.on(Hls.Events.ERROR, (_e, data) => {
-          if (data.fatal) handleStreamError();
-        });
-      } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-        video.src = activeUrl;
-        video.play().catch(() => {});
-      }
-    } else if (kind === "dash") {
+    (async () => {
       try {
-        const player = dashjs.MediaPlayer().create();
-        dashRef.current = player;
-        player.initialize(video, activeUrl, true);
-        player.on("error", () => handleStreamError());
-      } catch { handleStreamError(); }
-    } else if (kind === "flv") {
-      if (flvjs.isSupported()) {
-        try {
-          const player = flvjs.createPlayer({ type: "flv", url: activeUrl, isLive: true });
-          flvRef.current = player;
-          player.attachMediaElement(video);
-          player.load();
-          Promise.resolve(player.play()).catch(() => {});
-          player.on(flvjs.Events.ERROR, () => handleStreamError());
-        } catch { handleStreamError(); }
-      } else handleStreamError();
-    } else {
-      video.src = activeUrl;
-      video.play().catch(() => {});
-    }
+        if (kind === "hls") {
+          const Hls = (await import("hls.js")).default;
+          if (cancelled) return;
+          if (Hls.isSupported()) {
+            const hls = new Hls({
+              enableWorker: true,
+              lowLatencyMode: ultra,
+              maxBufferLength: ultra ? 6 : bufferMode ? 60 : 30,
+              maxMaxBufferLength: ultra ? 10 : bufferMode ? 120 : 60,
+              backBufferLength: bufferMode ? 30 : 10,
+              manifestLoadingMaxRetry: 6,
+              manifestLoadingRetryDelay: 800,
+              levelLoadingMaxRetry: 6,
+              levelLoadingRetryDelay: 800,
+              fragLoadingMaxRetry: 6,
+              fragLoadingRetryDelay: 800,
+            });
+            hlsRef.current = hls;
+            hls.loadSource(activeUrl);
+            hls.attachMedia(video);
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+              const levels: QualityLevel[] = hls.levels.map((l: any, i: number) => ({
+                id: i,
+                label: l.height ? `${l.height}p` : `${Math.round((l.bitrate || 0) / 1000)}k`,
+              }));
+              setQualities(levels);
+              if (prefs.dataMode === "saver" && levels.length) {
+                const low = levels.findIndex((l) => /\d+p/.test(l.label) && parseInt(l.label) <= 360);
+                hls.currentLevel = low >= 0 ? low : 0;
+                setCurrentQuality(hls.currentLevel);
+              } else if (prefs.dataMode === "max") {
+                const top = levels.length - 1;
+                hls.currentLevel = top;
+                setCurrentQuality(top);
+              } else setCurrentQuality(-1);
+              video.play().catch(() => {});
+            });
+            hls.on(Hls.Events.ERROR, (_e: any, data: any) => {
+              if (!data.fatal) return;
+              if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                recoveryAttemptsRef.current++;
+                if (recoveryAttemptsRef.current <= 3) { try { hls.startLoad(); } catch { swapToFallback(); } }
+                else swapToFallback();
+              } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                recoveryAttemptsRef.current++;
+                if (recoveryAttemptsRef.current <= 3) { try { hls.recoverMediaError(); } catch { swapToFallback(); } }
+                else swapToFallback();
+              } else swapToFallback();
+            });
+          } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+            video.src = activeUrl;
+            video.play().catch(() => {});
+          } else swapToFallback();
+        } else if (kind === "dash") {
+          const dashjs = await import("dashjs");
+          if (cancelled) return;
+          const player = dashjs.MediaPlayer().create();
+          dashRef.current = player;
+          player.initialize(video, activeUrl, true);
+          player.on("error", () => swapToFallback());
+        } else if (kind === "flv") {
+          const flvjs = (await import("flv.js")).default;
+          if (cancelled) return;
+          if (flvjs.isSupported()) {
+            const player = flvjs.createPlayer({ type: "flv", url: activeUrl, isLive: true });
+            flvRef.current = player;
+            player.attachMediaElement(video);
+            player.load();
+            Promise.resolve(player.play()).catch(() => {});
+            player.on(flvjs.Events.ERROR, () => swapToFallback());
+          } else swapToFallback();
+        } else {
+          // mp4 / webm / ogg
+          video.src = activeUrl;
+          video.play().catch(() => {});
+        }
+      } catch {
+        if (!cancelled) swapToFallback();
+      }
+    })();
 
-    return cleanup;
+    return () => { cancelled = true; cleanup(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeUrl, kind, isVideo, invalid, retryKey, prefs.playbackMode, prefs.dataMode]);
 
@@ -254,7 +287,11 @@ export default function StreamPlayer({
     } catch {}
   };
 
-  const shareUrl = typeof window !== "undefined" ? window.location.href : "";
+  const [shareUrl, setShareUrl] = useState("");
+  useEffect(() => {
+    if (typeof window !== "undefined") setShareUrl(window.location.href);
+  }, []);
+
   const handleShare = async () => {
     if (typeof navigator !== "undefined" && (navigator as any).share) {
       try { await (navigator as any).share({ title, url: shareUrl }); return; } catch {}
@@ -276,7 +313,7 @@ export default function StreamPlayer({
       <div className="mb-3 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
         <div className="min-w-0">
           <p className="text-[10px] sm:text-xs uppercase tracking-[0.22em] text-muted-foreground">
-            Player {index + 1}{usingFallback && " · Fallback"}
+            Player {index + 1}{usingFallback && " · Fallback"} · {kind.toUpperCase()}
           </p>
           <h2 className="font-display text-base sm:text-2xl md:text-3xl font-semibold tracking-tight truncate">
             {title || `Stream ${index + 1}`}
@@ -319,7 +356,7 @@ export default function StreamPlayer({
             <div className="text-white">
               <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-amber-400" />
               <h3 className="font-display text-lg sm:text-xl font-semibold mb-1">Invalid stream URL</h3>
-              <p className="text-xs text-white/60">Check the spreadsheet for this stream.</p>
+              <p className="text-xs text-white/60">Check the database for this stream.</p>
             </div>
           </div>
         )}
