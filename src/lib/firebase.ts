@@ -6,13 +6,14 @@ import { getDatabase, type Database } from "firebase/database";
 // enforced via Firestore/RTDB security rules, not by hiding the API key).
 // Prefer env vars; fall back to hardcoded placeholder so the app still builds.
 const config = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "",
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "",
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "",
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "",
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "",
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || "",
-  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL || "",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyBPLACEHOLDER_PASTE_REAL_KEY",
+  authDomain: "streamin-5dd83.firebaseapp.com",
+  projectId: "streamin-5dd83",
+  storageBucket: "streamin-5dd83.firebasestorage.app",
+  messagingSenderId: "6821794138",
+  appId: "1:6821794138:web:a54c69afc1258ca209a363",
+  databaseURL: "https://streamin-5dd83-default-rtdb.firebaseio.com",
+  measurementId: "G-W2P426XG2N",
 };
 
 export const isFirebaseConfigured = !!(config.apiKey && config.projectId);
